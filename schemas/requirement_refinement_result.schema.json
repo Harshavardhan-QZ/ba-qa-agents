@@ -1,0 +1,830 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://westfield.internal/schemas/requirement_refinement_result.schema.json",
+  "title": "RequirementRefinementResult",
+  "description": "Canonical structured output contract for the Requirements Refinement capability (ba-qa-agent + the requirement-analysis skill). One instance of this schema is the complete, self-contained result of refining exactly one requirement identity (a Jira issue, an already-supplied Jira story, or free-text/BRD content). This schema defines the CONTRACT only — no persistence mechanism is implied or wired up here; scripts/save_agent_output.py's Markdown-artifact mechanism is unaffected until a separate task wires this JSON contract into it. Every object that can assert a fact carries its provenance via evidence_ids referencing the top-level `evidence` registry; nothing may claim 'confirmed' status without a resolvable, appropriately-typed evidence reference (see the confirmed-requires-evidence rule enforced by scripts/validate_requirement_refinement_result.py, which performs the cross-reference and business-rule checks this schema's static shape cannot express on its own).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "run_id", "requirement_id", "source", "original_requirement",
+    "normalized_requirement", "refined_story", "business_intent", "actors",
+    "triggers", "preconditions", "process", "expected_outcomes",
+    "business_rules", "acceptance_criteria", "edge_cases", "dependencies",
+    "related_requirements", "duplicate_candidates", "conflicts", "gaps",
+    "clarification_questions", "testability_assessment",
+    "automation_feasibility", "existing_test_mapping",
+    "traceability_candidates", "quality_assessment", "confirmed_facts",
+    "assumptions", "recommendations", "unknowns", "evidence", "confidence",
+    "review_status"
+  ],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "pattern": "^run-[A-Za-z0-9_-]+$",
+      "description": "Matches the run-id format already minted by scripts/save_agent_output.py (RUN_ID_RE), so this contract's identifiers stay compatible with the platform's existing persistence convention even though this schema does not persist anything itself."
+    },
+    "requirement_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable identifier for the requirement being refined: the Jira issue key when one exists, otherwise a caller-supplied or deterministically-derived identifier for the free-text/BRD input. Never fabricated when none was supplied — use a locally-unique placeholder and record the absence as an Unknown, do not invent a Jira-key-shaped string."
+    },
+    "source": { "$ref": "#/$defs/Source" },
+    "original_requirement": { "$ref": "#/$defs/OriginalRequirement" },
+    "normalized_requirement": { "$ref": "#/$defs/NormalizedRequirement" },
+    "refined_story": { "$ref": "#/$defs/ConditionalRefinedStory" },
+    "business_intent": { "$ref": "#/$defs/Claim" },
+    "actors": { "type": "array", "items": { "$ref": "#/$defs/Claim" } },
+    "triggers": { "type": "array", "items": { "$ref": "#/$defs/Claim" } },
+    "preconditions": { "type": "array", "items": { "$ref": "#/$defs/Claim" } },
+    "process": { "type": "array", "items": { "$ref": "#/$defs/Claim" } },
+    "expected_outcomes": { "type": "array", "items": { "$ref": "#/$defs/Claim" } },
+    "business_rules": { "type": "array", "items": { "$ref": "#/$defs/BusinessRule" } },
+    "acceptance_criteria": { "type": "array", "items": { "$ref": "#/$defs/AcceptanceCriterion" } },
+    "edge_cases": { "type": "array", "items": { "$ref": "#/$defs/Claim" } },
+    "dependencies": { "type": "array", "items": { "$ref": "#/$defs/Dependency" } },
+    "related_requirements": { "$ref": "#/$defs/ConditionalRelatedRequirementList" },
+    "duplicate_candidates": { "$ref": "#/$defs/ConditionalDuplicateCandidateList" },
+    "conflicts": { "type": "array", "items": { "$ref": "#/$defs/Conflict" } },
+    "gaps": { "type": "array", "items": { "$ref": "#/$defs/Gap" } },
+    "clarification_questions": { "type": "array", "items": { "$ref": "#/$defs/ClarificationQuestion" } },
+    "testability_assessment": { "$ref": "#/$defs/TestabilityAssessment" },
+    "automation_feasibility": { "$ref": "#/$defs/AutomationFeasibility" },
+    "existing_test_mapping": { "$ref": "#/$defs/ConditionalExistingTestMapping" },
+    "traceability_candidates": { "type": "array", "items": { "$ref": "#/$defs/TraceabilityCandidate" } },
+    "quality_assessment": { "$ref": "#/$defs/QualityAssessment" },
+    "confirmed_facts": { "type": "array", "items": { "$ref": "#/$defs/ConfirmedFact" } },
+    "assumptions": { "type": "array", "items": { "$ref": "#/$defs/Assumption" } },
+    "recommendations": { "type": "array", "items": { "$ref": "#/$defs/Recommendation" } },
+    "unknowns": { "type": "array", "items": { "$ref": "#/$defs/Unknown" } },
+    "evidence": { "type": "array", "items": { "$ref": "#/$defs/Evidence" } },
+    "confidence": { "$ref": "#/$defs/Confidence" },
+    "review_status": { "$ref": "#/$defs/ReviewStatus" }
+  },
+
+  "$defs": {
+
+    "EvidenceSourceType": {
+      "type": "string",
+      "enum": [
+        "jira_requirement_field",
+        "jira_search_result",
+        "free_text_requirement",
+        "supplied_acceptance_criteria",
+        "additional_context",
+        "knowledge_fabric",
+        "repo_file"
+      ],
+      "description": "Where a piece of evidence actually came from. Must match one of the input/retrieval shapes the requirement-analysis skill and ba-qa-agent actually support — never a source type implying a capability (e.g. Confluence, a CI system) that isn't wired up."
+    },
+
+    "KnowledgeFabricTier": {
+      "type": "string",
+      "enum": ["directly_applicable", "potentially_applicable", "requires_confirmation"],
+      "description": "Policy applicability tier, required on every evidence item whose source_type is knowledge_fabric; null/absent otherwise."
+    },
+
+    "RetrievalTool": {
+      "type": "string",
+      "enum": [
+        "getJiraIssue",
+        "getAccessibleAtlassianResources",
+        "searchJiraIssuesUsingJql",
+        "search_knowledge",
+        "get_context",
+        "Read",
+        "Grep",
+        "Glob",
+        "user_supplied"
+      ],
+      "description": "The exact tool that produced this evidence, or 'user_supplied' for content pasted/handed directly rather than retrieved. Restricted to tools actually granted to ba-qa-agent today — never a Jira write tool, a Confluence tool, or an unregistered Knowledge Fabric tool (detect_conflicts, detect_gaps, trace_requirement, etc. do not exist and must never appear here)."
+    },
+
+    "ClaimBasis": {
+      "type": "string",
+      "enum": ["confirmed", "assumption", "recommendation", "unknown"],
+      "description": "Provenance category for a single statement. 'confirmed' is only earned by a resolvable evidence_ids reference to an appropriately-typed, actually-retrieved evidence item (see the validator) — it can never be assigned to fill a silence."
+    },
+
+    "EvidenceRefList": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "description": "References into the top-level `evidence[].id` registry. Every id here must resolve to a real evidence entry — a dangling reference is a claim of evidence that was never retrieved, which this contract forbids."
+    },
+
+    "Evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "source_type", "locator", "excerpt", "retrieved_via"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^ev-[A-Za-z0-9_-]+$" },
+        "source_type": { "$ref": "#/$defs/EvidenceSourceType" },
+        "locator": {
+          "type": "string",
+          "minLength": 1,
+          "description": "document_id (Knowledge Fabric), Jira field name or issue key, repo-relative file path, or a description of the supplied text's origin."
+        },
+        "tier": {
+          "anyOf": [{ "$ref": "#/$defs/KnowledgeFabricTier" }, { "type": "null" }],
+          "description": "Required (non-null) when source_type is knowledge_fabric; must be null for every other source_type."
+        },
+        "excerpt": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The actual quoted or closely-paraphrased text that was retrieved — never left blank. A citation with no excerpt is not grounding, it's a label."
+        },
+        "retrieved_via": { "$ref": "#/$defs/RetrievalTool" },
+        "retrieved_at_run": {
+          "type": ["string", "null"],
+          "pattern": "^run-[A-Za-z0-9_-]+$",
+          "description": "run_id in which this evidence was actually captured, when reused from a prior run's artifact (e.g. version-comparison evidence); null when captured in this run."
+        }
+      }
+    },
+
+    "Claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "statement", "basis", "evidence_ids"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "statement": { "type": "string", "minLength": 1 },
+        "basis": { "$ref": "#/$defs/ClaimBasis" },
+        "evidence_ids": { "$ref": "#/$defs/EvidenceRefList" },
+        "related_evidence_ids": {
+          "$ref": "#/$defs/EvidenceRefList",
+          "description": "Optional, informative-only evidence that motivated an assumption/recommendation without confirming it. Never counted as confirmation."
+        },
+        "rationale": {
+          "type": "string",
+          "description": "Required when basis is not 'confirmed' — why this was inferred, recommended, or left unknown."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "basis": { "const": "confirmed" } } },
+          "then": { "properties": { "evidence_ids": { "minItems": 1 } } },
+          "else": {
+            "required": ["rationale"],
+            "properties": { "evidence_ids": { "maxItems": 0 } }
+          }
+        }
+      ],
+      "description": "A single provenanced statement. evidence_ids may only be non-empty when basis == 'confirmed' — a non-confirmed claim cannot carry confirming evidence, structurally preventing an assumption from being dressed up as a confirmed fact."
+    },
+
+    "BusinessRule": {
+      "allOf": [
+        { "$ref": "#/$defs/Claim" },
+        {
+          "type": "object",
+          "properties": {
+            "rule_type": {
+              "type": "string",
+              "description": "Free-text categorization, e.g. 'threshold', 'policy', 'constraint'. Optional."
+            }
+          }
+        }
+      ],
+      "description": "Extends Claim. A business rule may only be basis == 'confirmed' when it is quoted/paraphrased from the requirement text, supplied AC, or a Directly-applicable Knowledge Fabric document (enforced by the validator, not just this shape) — this is the concrete mechanism that satisfies 'never let an unsupported business rule look confirmed'."
+    },
+
+    "AcceptanceCriterionStatus": {
+      "type": "string",
+      "enum": ["confirmed", "proposed", "blocked_by_clarification"]
+    },
+
+    "AcceptanceCriterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "criterion", "status", "evidence_ids", "blocking_clarification_question_ids"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "criterion": { "type": "string", "minLength": 1 },
+        "status": { "$ref": "#/$defs/AcceptanceCriterionStatus" },
+        "evidence_ids": { "$ref": "#/$defs/EvidenceRefList" },
+        "blocking_clarification_question_ids": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "References into clarification_questions[].id. Required non-empty when status == 'blocked_by_clarification'; must be empty otherwise."
+        },
+        "rationale": {
+          "type": "string",
+          "description": "Required when status != 'confirmed'."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "confirmed" } } },
+          "then": {
+            "properties": {
+              "evidence_ids": { "minItems": 1 },
+              "blocking_clarification_question_ids": { "maxItems": 0 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "const": "blocked_by_clarification" } } },
+          "then": {
+            "required": ["rationale"],
+            "properties": { "blocking_clarification_question_ids": { "minItems": 1 } }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "const": "proposed" } } },
+          "then": {
+            "required": ["rationale"],
+            "properties": { "blocking_clarification_question_ids": { "maxItems": 0 } }
+          }
+        }
+      ],
+      "description": "Every acceptance criterion is exactly one of confirmed / proposed / blocked_by_clarification — never merged, never a fourth silent state. 'confirmed' requires resolvable, appropriately-typed evidence (validator-checked); 'blocked_by_clarification' requires at least one real clarification question blocking it, not just an assertion that it's blocked."
+    },
+
+    "DependencyType": {
+      "type": "string",
+      "enum": ["ui", "api", "data", "external_system"]
+    },
+
+    "Dependency": {
+      "allOf": [
+        { "$ref": "#/$defs/Claim" },
+        {
+          "type": "object",
+          "required": ["dependency_type"],
+          "properties": {
+            "dependency_type": { "$ref": "#/$defs/DependencyType" }
+          }
+        }
+      ]
+    },
+
+    "RelationshipType": {
+      "type": "string",
+      "enum": ["related", "prior_version", "duplicate"]
+    },
+
+    "RelatedRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "requirement_ref", "relationship_type", "confidence", "evidence_ids", "note"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "requirement_ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Jira key, artifact path, or other concrete pointer to the related requirement — never a vague description standing in for an actual reference."
+        },
+        "relationship_type": { "$ref": "#/$defs/RelationshipType" },
+        "confidence": { "type": "string", "enum": ["low", "medium", "high"] },
+        "evidence_ids": { "$ref": "#/$defs/EvidenceRefList" },
+        "note": { "type": "string" }
+      }
+    },
+
+    "DuplicateCandidate": {
+      "allOf": [
+        { "$ref": "#/$defs/RelatedRequirement" },
+        {
+          "type": "object",
+          "required": ["search_scope_limitation"],
+          "properties": {
+            "relationship_type": { "const": "duplicate" },
+            "search_scope_limitation": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Mandatory statement of what search scope this duplicate check did NOT cover (e.g. no project-wide JQL search was run) — a duplicate-candidate entry may never imply an exhaustive search occurred."
+            }
+          }
+        }
+      ]
+    },
+
+    "Conflict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "requirement_statement", "requirement_statement_evidence_id",
+        "conflicting_statement", "conflicting_statement_evidence_id",
+        "why_conflict", "required_decision"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "requirement_statement": { "type": "string", "minLength": 1 },
+        "requirement_statement_evidence_id": { "type": "string", "minLength": 1 },
+        "conflicting_statement": { "type": "string", "minLength": 1 },
+        "conflicting_statement_evidence_id": { "type": "string", "minLength": 1 },
+        "why_conflict": { "type": "string", "minLength": 1 },
+        "required_decision": { "type": "string", "minLength": 1 }
+      },
+      "description": "The four-part conflict record. Deliberately has no 'resolution', 'winner', or 'resolved_by' field anywhere in this shape (additionalProperties: false enforces this) — a conflict cannot be represented as resolved by this contract; only a human, outside this artifact, resolves it."
+    },
+
+    "GapType": {
+      "type": "string",
+      "enum": ["business_requirement", "security", "functional", "testability", "traceability"]
+    },
+
+    "Gap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "description", "primary_type"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 },
+        "primary_type": { "$ref": "#/$defs/GapType" },
+        "secondary_type": {
+          "anyOf": [{ "$ref": "#/$defs/GapType" }, { "type": "null" }],
+          "description": "At most one secondary type, and it must differ from primary_type — checked by the validator, since standard JSON Schema cannot compare two sibling fields for inequality."
+        },
+        "evidence_of_absence": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "What was searched and came back empty (e.g. a search_knowledge query), supporting the claim that this is genuinely a gap and not an unsearched area."
+        },
+        "clarification_question_id": {
+          "type": ["string", "null"],
+          "description": "Reference into clarification_questions[].id when this gap produced one."
+        }
+      }
+    },
+
+    "ClarificationQuestionSourceType": {
+      "type": "string",
+      "enum": ["ambiguity", "gap"]
+    },
+
+    "ClarificationQuestion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "question", "raised_by_type", "raised_by_id"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "question": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Must be answerable in one sentence or one decision — never a vague 'please clarify requirements.'"
+        },
+        "raised_by_type": { "$ref": "#/$defs/ClarificationQuestionSourceType" },
+        "raised_by_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "id of the ambiguity note or gaps[] entry that produced this question."
+        },
+        "priority": { "type": "string", "enum": ["low", "medium", "high"] }
+      }
+    },
+
+    "TestabilityVerdict": {
+      "type": "string",
+      "enum": ["testable", "not_testable", "partially_testable"]
+    },
+
+    "TestabilityAssessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verdict", "rationale", "evidence_ids", "related_gap_ids"],
+      "properties": {
+        "verdict": { "$ref": "#/$defs/TestabilityVerdict" },
+        "rationale": { "type": "string", "minLength": 1 },
+        "evidence_ids": { "$ref": "#/$defs/EvidenceRefList" },
+        "related_gap_ids": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "AutomationLayer": {
+      "type": "string",
+      "enum": ["ui", "api", "both", "manual_only", "undecidable"]
+    },
+
+    "AutomationFeasibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate_layer", "rationale", "scope_note"],
+      "properties": {
+        "candidate_layer": { "$ref": "#/$defs/AutomationLayer" },
+        "rationale": { "type": "string", "minLength": 1 },
+        "evidence_ids": { "$ref": "#/$defs/EvidenceRefList" },
+        "scope_note": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Must state that this is a high-level candidate only, not a full automation plan — the full layer decision and delegation belongs to automation-agent, never to this contract."
+        }
+      }
+    },
+
+    "ExistingTestMappingEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "test_path", "description", "evidence_id"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "test_path": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 },
+        "caveat": {
+          "type": ["string", "null"],
+          "description": "Any 'supplied/unverified' or similar caveat the existing test file itself discloses, carried forward verbatim."
+        },
+        "evidence_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Must reference a repo_file evidence entry."
+        }
+      }
+    },
+
+    "ConditionalExistingTestMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["applicable", "entries", "reason_if_not_applicable"],
+      "properties": {
+        "applicable": { "type": "boolean" },
+        "entries": { "type": "array", "items": { "$ref": "#/$defs/ExistingTestMappingEntry" } },
+        "reason_if_not_applicable": {
+          "type": ["string", "null"],
+          "description": "Required non-null when applicable == false (e.g. 'no existing test evidence found')."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "applicable": { "const": false } } },
+          "then": { "properties": { "entries": { "maxItems": 0 } }, "required": ["reason_if_not_applicable"] }
+        },
+        {
+          "if": { "properties": { "applicable": { "const": true } } },
+          "then": { "properties": { "entries": { "minItems": 1 } } }
+        }
+      ]
+    },
+
+    "ConditionalRelatedRequirementList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["applicable", "entries", "reason_if_not_applicable", "search_scope_limitation"],
+      "properties": {
+        "applicable": { "type": "boolean" },
+        "entries": { "type": "array", "items": { "$ref": "#/$defs/RelatedRequirement" } },
+        "reason_if_not_applicable": { "type": ["string", "null"] },
+        "search_scope_limitation": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Mandatory even when applicable == true: this repo grants no project-wide Jira search beyond searchJiraIssuesUsingJql (JQL) plus search_knowledge/repo-local artifacts — state plainly that this is not an exhaustive cross-project search."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "applicable": { "const": false } } },
+          "then": { "properties": { "entries": { "maxItems": 0 } }, "required": ["reason_if_not_applicable"] }
+        }
+      ]
+    },
+
+    "ConditionalDuplicateCandidateList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["applicable", "entries", "reason_if_not_applicable", "search_scope_limitation"],
+      "properties": {
+        "applicable": { "type": "boolean" },
+        "entries": { "type": "array", "items": { "$ref": "#/$defs/DuplicateCandidate" } },
+        "reason_if_not_applicable": { "type": ["string", "null"] },
+        "search_scope_limitation": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "applicable": { "const": false } } },
+          "then": { "properties": { "entries": { "maxItems": 0 } }, "required": ["reason_if_not_applicable"] }
+        }
+      ]
+    },
+
+    "TraceabilityCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "requirement_ref", "business_rule_or_ac_ref", "status", "evidence_ids"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "requirement_ref": { "type": "string", "minLength": 1 },
+        "business_rule_or_ac_ref": { "type": "string", "minLength": 1 },
+        "downstream_ref": {
+          "type": ["string", "null"],
+          "description": "An existing_test_mapping entry id or a dependency id, when the chain extends that far. Null otherwise — never a fabricated test/automation reference."
+        },
+        "status": {
+          "const": "candidate",
+          "description": "Always 'candidate' — this contract has no mechanism to mark a traceability chain final. Finalization happens outside this artifact (a downstream Test Authoring/automation stage), never here."
+        },
+        "evidence_ids": { "$ref": "#/$defs/EvidenceRefList" }
+      }
+    },
+
+    "CriticStatus": {
+      "type": "string",
+      "enum": ["clean", "revised", "escalation_required", "unresolved_issues_remain"],
+      "description": "Overall Requirements Critic pass outcome. When more than one would apply, report the most severe in this order: unresolved_issues_remain > escalation_required > revised > clean."
+    },
+
+    "CriticCheckNumber": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 14,
+      "description": "Which of the requirement-analysis skill's fourteen Requirements Critic checks this finding came from (1=original intent preserved ... 14=tool operation claimed but not actually performed)."
+    },
+
+    "CriticDisposition": {
+      "type": "string",
+      "enum": ["revise", "escalate", "unresolved"],
+      "description": "'revise': fixed in place using only evidence already retrieved/supplied in this run — never by upgrading a claim's evidentiary status. 'escalate': requires a human/business decision; recorded as (or linked to) a Conflict/Gap/Clarification Question, never resolved by the agent. 'unresolved': could not be fixed or cleanly reduced to one escalatable decision."
+    },
+
+    "CriticFinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "check_number", "description", "disposition"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "check_number": { "$ref": "#/$defs/CriticCheckNumber" },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What the critic found, e.g. 'AC-003 cited kb-004 but kb-004 was never opened via get_context.'"
+        },
+        "section_ref": {
+          "type": "string",
+          "description": "Which field/id of this same document the finding refers to."
+        },
+        "disposition": { "$ref": "#/$defs/CriticDisposition" }
+      }
+    },
+
+    "CriticCorrection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["finding_id", "what_changed", "section_ref"],
+      "properties": {
+        "finding_id": { "type": "string", "minLength": 1 },
+        "what_changed": { "type": "string", "minLength": 1 },
+        "section_ref": { "type": "string", "minLength": 1 }
+      },
+      "description": "One entry per 'revise'-disposition finding that was actually fixed. A revise-disposition finding with no matching correction is a contract violation (see validator) — its disposition should have been 'unresolved' instead."
+    },
+
+    "CriticUnresolvedItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["finding_id", "why_unresolved"],
+      "properties": {
+        "finding_id": { "type": "string", "minLength": 1 },
+        "why_unresolved": { "type": "string", "minLength": 1 }
+      },
+      "description": "One entry per finding with disposition 'escalate' or 'unresolved'."
+    },
+
+    "QualityAssessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["critic_status", "findings", "corrections", "unresolved_items", "escalation_required", "deterministic_validation"],
+      "properties": {
+        "critic_status": { "$ref": "#/$defs/CriticStatus" },
+        "findings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/CriticFinding" },
+          "description": "Every problem the Requirements Critic pass actually found, across all fourteen checks — empty only when critic_status is 'clean'."
+        },
+        "corrections": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/CriticCorrection" },
+          "description": "Never invented to close a finding — a correction may only remove, downgrade, relabel, or reformat, never assert evidence that wasn't actually retrieved."
+        },
+        "unresolved_items": { "type": "array", "items": { "$ref": "#/$defs/CriticUnresolvedItem" } },
+        "escalation_required": {
+          "type": "boolean",
+          "description": "true if and only if at least one finding has disposition 'escalate' — cross-checked by the validator, not just self-reported."
+        },
+        "deterministic_validation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["passed", "violations"],
+          "properties": {
+            "passed": {
+              "type": "boolean",
+              "description": "Whether scripts/validate_requirement_refinement_result.py ran clean against this document at production time."
+            },
+            "violations": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Verbatim violation messages from the validator, when passed == false. A document may still be delivered with known, disclosed violations (e.g. an unresolved dangling reference explained elsewhere) but must never claim passed == true while violations exist. Distinct from the Requirements Critic pass itself: this is the mechanical, schema-shape check; the critic pass above is the reasoning/quality check."
+            }
+          }
+        }
+      }
+    },
+
+    "ConfirmedFact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "statement", "evidence_ids", "source_section"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "statement": { "type": "string", "minLength": 1 },
+        "evidence_ids": { "$ref": "#/$defs/EvidenceRefList", "minItems": 1 },
+        "source_section": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Which field of this document this confirmed fact was drawn from, e.g. 'business_rules[BR-002]'."
+        }
+      },
+      "description": "Flattened index of every confirmed statement in this document, for fast BA/PO review. Every entry must carry at least one evidence reference by construction."
+    },
+
+    "Assumption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "statement", "rationale"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "statement": { "type": "string", "minLength": 1 },
+        "rationale": { "type": "string", "minLength": 1 },
+        "related_evidence_ids": { "$ref": "#/$defs/EvidenceRefList" }
+      },
+      "description": "No 'evidence_ids' field exists here (only the non-confirming 'related_evidence_ids') — an assumption cannot carry confirming evidence by shape, not just by convention."
+    },
+
+    "Recommendation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "statement", "rationale"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "statement": { "type": "string", "minLength": 1 },
+        "rationale": { "type": "string", "minLength": 1 },
+        "related_evidence_ids": { "$ref": "#/$defs/EvidenceRefList" }
+      }
+    },
+
+    "Unknown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "description", "why_unresolved"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 },
+        "why_unresolved": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why this could not even be phrased as a useful clarification question."
+        }
+      }
+    },
+
+    "ConfidenceLevel": { "type": "string", "enum": ["low", "medium", "high"] },
+
+    "Confidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "rationale", "factors"],
+      "properties": {
+        "level": { "$ref": "#/$defs/ConfidenceLevel" },
+        "rationale": { "type": "string", "minLength": 1 },
+        "factors": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "gap_count", "conflict_count", "unknown_count", "assumption_count",
+            "open_clarification_question_count", "evidence_count"
+          ],
+          "properties": {
+            "gap_count": { "type": "integer", "minimum": 0 },
+            "conflict_count": { "type": "integer", "minimum": 0 },
+            "unknown_count": { "type": "integer", "minimum": 0 },
+            "assumption_count": { "type": "integer", "minimum": 0 },
+            "open_clarification_question_count": { "type": "integer", "minimum": 0 },
+            "evidence_count": { "type": "integer", "minimum": 0 }
+          },
+          "description": "Must match the actual counts elsewhere in this document — cross-checked by the validator. `level` is then bounded by these counts (e.g. any open conflict caps level at 'low'), also validator-enforced, so confidence cannot be asserted independently of the evidence density it claims to summarize."
+        }
+      }
+    },
+
+    "ReviewStatusValue": {
+      "type": "string",
+      "enum": ["pending_ba_po_review", "blocked_missing_input", "requires_conflict_resolution"],
+      "description": "Deliberately contains no 'approved' value anywhere in this enum. Approval is a human act that happens outside this artifact; this contract has no field capable of representing it."
+    },
+
+    "ReviewStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "note"],
+      "properties": {
+        "status": { "$ref": "#/$defs/ReviewStatusValue" },
+        "note": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Must always be, or clearly imply, 'NOT APPROVED — awaiting BA/PO review', regardless of which status value is set."
+        }
+      }
+    },
+
+    "InputShape": {
+      "type": "string",
+      "enum": ["jira_issue_key", "jira_story_supplied", "free_text_requirement", "brd_excerpt"]
+    },
+
+    "Source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "input_shape", "jira_key", "jira_cloud_id",
+        "supplied_acceptance_criteria_provided", "additional_context_provided"
+      ],
+      "properties": {
+        "input_shape": { "$ref": "#/$defs/InputShape" },
+        "jira_key": { "type": ["string", "null"] },
+        "jira_cloud_id": { "type": ["string", "null"] },
+        "supplied_acceptance_criteria_provided": { "type": "boolean" },
+        "additional_context_provided": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "input_shape": { "enum": ["free_text_requirement", "brd_excerpt"] } }
+          },
+          "then": { "properties": { "jira_key": { "const": null }, "jira_cloud_id": { "const": null } } }
+        }
+      ]
+    },
+
+    "OriginalRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "jira_fields", "evidence_id"],
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Verbatim reproduction of the requirement as given — never edited or paraphrased here."
+        },
+        "jira_fields": {
+          "type": ["object", "null"],
+          "description": "Raw retrieved/supplied Jira field map, only when source.input_shape is a Jira shape; null for free text/BRD."
+        },
+        "evidence_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "References the evidence[] entry that is this exact text's source."
+        }
+      }
+    },
+
+    "NormalizedRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "added_labels"],
+      "properties": {
+        "text": { "type": "string", "minLength": 1 },
+        "added_labels": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["note", "basis"],
+            "properties": {
+              "note": { "type": "string", "minLength": 1 },
+              "basis": { "$ref": "#/$defs/ClaimBasis" }
+            }
+          },
+          "description": "Documents every word/phrase added during normalization that wasn't a direct quote, each with its own basis label."
+        }
+      }
+    },
+
+    "ConditionalRefinedStory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["applicable", "original", "refined", "refinements_supported_by_evidence_ids", "reason_if_not_applicable"],
+      "properties": {
+        "applicable": {
+          "type": "boolean",
+          "description": "true only for a Jira input shape; the Original/Refined split does not apply to free-text/BRD input."
+        },
+        "original": { "type": ["string", "null"] },
+        "refined": { "type": ["string", "null"] },
+        "refinements_supported_by_evidence_ids": { "$ref": "#/$defs/EvidenceRefList" },
+        "reason_if_not_applicable": { "type": ["string", "null"] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "applicable": { "const": false } } },
+          "then": {
+            "properties": { "original": { "const": null }, "refined": { "const": null } },
+            "required": ["reason_if_not_applicable"]
+          }
+        },
+        {
+          "if": { "properties": { "applicable": { "const": true } } },
+          "then": { "required": ["original", "refined"] }
+        }
+      ]
+    }
+  }
+}

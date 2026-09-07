@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "knowledge-fabric": {
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "mcp-servers/knowledge-fabric/server.py"
+      ]
+    }
+  }
+}
